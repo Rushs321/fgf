@@ -1,9 +1,6 @@
 "use strict";
 
-/*
- * proxy.js
- * The bandwidth hero proxy handler with integrated modules.
- */
+
 import http from "http";
 import https from "https";
 import sharp from "sharp";
@@ -104,7 +101,7 @@ function compress(req, res, input) {
 }
 
 // Main: Proxy
-function proxy(req, res) {
+function hhproxy(req, res) {
   // Extract and validate parameters from the request
   let url = req.query.url;
   if (!url) return res.send("ban");
@@ -181,4 +178,4 @@ function proxy(req, res) {
   originReq.end();
 }
 
-export default proxy;
+export default hhproxy;
