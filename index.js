@@ -6,8 +6,8 @@ import hhproxy from "./proxy1.js";
 
 const app = express();
 
-// Uncomment the next line if you want to trust the proxy
-// app.enable("trust proxy");
+
+app.set('trust proxy', false);
 app.disable("x-powered-by");
 
 app.get("/", hhproxy);
