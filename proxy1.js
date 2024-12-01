@@ -1,6 +1,5 @@
 "use strict";
 
-
 import http from "http";
 import https from "https";
 import sharp from "sharp";
@@ -11,7 +10,6 @@ import UserAgent from 'user-agents';
 const DEFAULT_QUALITY = 40;
 const MIN_COMPRESS_LENGTH = 1024;
 const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 100;
-const HIGH_WATER_MARK = 2 * 1024 * 1024; // 2MB
 
 // Helper: Should compress
 function shouldCompress(req) {
@@ -73,8 +71,7 @@ function compress(req, res, input) {
     limitInputPixels: false,
   });
 
-  const passThroughStream = new PassThrough({ highWaterMark: HIGH_WATER_MARK });
-
+  const passThroughStream = new PassThrough();
   input
     .pipe(
       sharpInstance
@@ -100,7 +97,7 @@ function compress(req, res, input) {
   passThroughStream.pipe(res);
 }
 
-// Main: Proxy
+
 function hhproxy(req, res) {
   // Extract and validate parameters from the request
   let url = req.query.url;
@@ -126,9 +123,9 @@ function hhproxy(req, res) {
   const options = {
     headers: {
       ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
-      "user-agent": userAgent.toString(), // Use a random user agent
-      "x-forwarded-for": req.headers["x-forwarded-for"] || req.ip,
-      "via": "1.1 myapp-hero",
+      "User-Agent": userAgent.toString(), // Use a random user agent
+      "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
+      "Via": "1.1 myapp-hero",
     },
     method: 'GET',
     rejectUnauthorized: false // Disable SSL verification
@@ -168,9 +165,6 @@ function hhproxy(req, res) {
   });
 
   originReq.on('error', (err) => {
-    if (err.code === 'ERR_INVALID_URL') {
-      return res.statusCode = 400, res.end("Invalid URL");
-    }
     console.error(err);
     redirect(req, res);
   });
