@@ -126,9 +126,9 @@ function hhproxy(req, res) {
   const options = {
     headers: {
       ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
-      "User-Agent": userAgent.toString(), // Use a random user agent
-      "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
-      "Via": "1.1 myapp-hero",
+      "user-agent": userAgent.toString(), // Use a random user agent
+      "x-forwarded-for": req.headers["x-forwarded-for"] || req.ip,
+      "via": "1.1 myapp-hero",
     },
     method: 'GET',
     rejectUnauthorized: false // Disable SSL verification
