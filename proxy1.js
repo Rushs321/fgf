@@ -4,8 +4,6 @@
 import http from "http";
 import https from "https";
 import sharp from "sharp";
-import { availableParallelism } from 'os';
-import { PassThrough } from 'stream';
 import pick from "./pick.js";
 import UserAgent from 'user-agents';
 
