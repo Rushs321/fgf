@@ -1,8 +1,10 @@
 "use strict";
 
+
 import http from "http";
 import https from "https";
 import sharp from "sharp";
+import { availableParallelism } from 'os';
 import { PassThrough } from 'stream';
 import pick from "./pick.js";
 import UserAgent from 'user-agents';
@@ -39,7 +41,6 @@ function copyHeaders(source, target) {
       console.log(e.message);
     }
   }
-
 }
 
 // Helper: Redirect
@@ -58,12 +59,11 @@ function redirect(req, res) {
 
 // Helper: Compress
 function compress(req, res, input) {
-
   const format = "webp";
 
   sharp.cache(false);
-  sharp.simd(false);
-  sharp.concurrency(1);
+  sharp.simd(true);
+  sharp.concurrency(availableParallelism());
 
   const sharpInstance = sharp({
     unlimited: true,
@@ -72,10 +72,12 @@ function compress(req, res, input) {
   });
 
   const passThroughStream = new PassThrough();
+
   input
     .pipe(
       sharpInstance
         .resize(null, 16383, {
+          fit: 'inside',
           withoutEnlargement: true
         })
         .grayscale(req.params.grayscale)
@@ -97,14 +99,16 @@ function compress(req, res, input) {
   passThroughStream.pipe(res);
 }
 
-
+// Main: Proxy
 function hhproxy(req, res) {
   // Extract and validate parameters from the request
   let url = req.query.url;
-  if (!url) return res.send("ban");
+  if (!url) return res.end("ban");
 
-  // Modify the URL to ensure it uses HTTPS
-  url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'https://');
+  // Replace the URL pattern
+  url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
+
+  // Set request parameters
   req.params = {};
   req.params.url = url;
   req.params.webp = !req.query.jpeg;
@@ -119,57 +123,61 @@ function hhproxy(req, res) {
     return redirect(req, res);
   }
 
-  const userAgent = new UserAgent();
+  const parsedUrl = new URL(req.params.url);
   const options = {
     headers: {
       ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
-      "User-Agent": userAgent.toString(), // Use a random user agent
-      "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
-      "Via": "1.1 myapp-hero",
+      "user-agent": userAgent.toString(),
+      "x-forwarded-for": req.headers["x-forwarded-for"] || req.ip,
+      via: "1.1 myapp-hero",
     },
     method: 'GET',
     rejectUnauthorized: false // Disable SSL verification
   };
 
-  const protocol = url.startsWith('https') ? https : http;
+const requestModule = parsedUrl.protocol === 'https:' ? https : http;
 
-  let originReq = protocol.request(req.params.url, options, (originRes) => {
-    // Handle non-2xx or redirect responses.
-    if (
-      originRes.statusCode >= 400 ||
-      (originRes.statusCode >= 300 && originRes.headers.location)
-    ) {
-      return redirect(req, res);
+  try {
+    let originReq = requestModule.request(parsedUrl, options, (originRes) => {
+      // Handle non-2xx or redirect responses.
+      if (
+        originRes.statusCode >= 400 ||
+        (originRes.statusCode >= 300 && originRes.headers.location)
+      ) {
+        return redirect(req, res);
+      }
+
+      // Set headers and stream response.
+      copyHeaders(originRes, res);
+      res.setHeader("content-encoding", "identity");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+      req.params.originType = originRes.headers["content-type"] || "";
+      req.params.originSize = originRes.headers["content-length"] || "0";
+
+      if (shouldCompress(req)) {
+        return compress(req, res, originRes);
+      } else {
+        res.setHeader("x-proxy-bypass", 1);
+        ["accept-ranges", "content-type", "content-length", "content-range"].forEach((header) => {
+          if (originRes.headers[header]) {
+            res.setHeader(header, originRes.headers[header]);
+          }
+        });
+        return originRes.pipe(res);
+      }
+    });
+
+    originReq.end();
+  } catch (err) {
+    if (err.code === 'ERR_INVALID_URL') {
+      return res.statusCode = 400, res.end("Invalid URL");
     }
-
-    // Set headers and stream response.
-    copyHeaders(originRes, res);
-    res.setHeader("content-encoding", "identity");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-    res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
-    req.params.originType = originRes.headers["content-type"] || "";
-    req.params.originSize = originRes.headers["content-length"] || "0";
-
-    if (shouldCompress(req)) {
-      return compress(req, res, originRes);
-    } else {
-      res.setHeader("x-proxy-bypass", 1);
-      ["accept-ranges", "content-type", "content-length", "content-range"].forEach((header) => {
-        if (originRes.headers[header]) {
-          res.setHeader(header, originRes.headers[header]);
-        }
-      });
-      return originRes.pipe(res);
-    }
-  });
-
-  originReq.on('error', (err) => {
     console.error(err);
     redirect(req, res);
-  });
-
-  originReq.end();
+    
+  }
 }
 
 export default hhproxy;
