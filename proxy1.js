@@ -99,7 +99,7 @@ function compress(req, res, input) {
   passThroughStream.pipe(res);
 }
 
-// Main: Proxy
+// 
 function hhproxy(req, res) {
   // Extract and validate parameters from the request
   let url = req.query.url;
