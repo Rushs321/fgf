@@ -124,6 +124,7 @@ function hhproxy(req, res) {
   }
 
   const parsedUrl = new URL(req.params.url);
+  const userAgent = new UserAgent();
   const options = {
     headers: {
       ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
