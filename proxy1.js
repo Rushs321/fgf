@@ -59,11 +59,11 @@ function redirect(req, res) {
 
 // Helper: Compress
 function compress(req, res, input) {
-  const format = "webp";
+  const format = "jpeg";
 
   sharp.cache(false);
-  sharp.simd(true);
-  sharp.concurrency(availableParallelism());
+  sharp.simd(false);
+  sharp.concurrency(1);
 
   const sharpInstance = sharp({
     unlimited: true,
@@ -71,32 +71,46 @@ function compress(req, res, input) {
     limitInputPixels: false,
   });
 
-  const passThroughStream = new PassThrough();
+  const transform = sharpInstance
+    .resize(null, 16383, {
+      fit: 'inside',
+      withoutEnlargement: true
+    })
+    .grayscale(req.params.grayscale)
+    .toFormat(format, {
+      quality: req.params.quality,
+      effort: 0
+    });
+
+  let infoReceived = false;
 
   input
-    .pipe(
-      sharpInstance
-        .resize(null, 16383, {
-          fit: 'inside',
-          withoutEnlargement: true
+    .pipe(transform)
+    .on("error", () => {
+          if (!res.headersSent && !infoReceived) {
+            redirect(req, res);
+          }
         })
-        .grayscale(req.params.grayscale)
-        .toFormat(format, {
-          quality: req.params.quality,
-          effort: 0
-        })
-        .on("error", () => redirect(req, res))
-        .on("info", (info) => {
+    .on("info", (info) => {
+          infoReceived = true;
           res.setHeader("content-type", "image/" + format);
           res.setHeader("content-length", info.size);
           res.setHeader("x-original-size", req.params.originSize);
           res.setHeader("x-bytes-saved", req.params.originSize - info.size);
           res.statusCode = 200;
         })
-    )
-    .pipe(passThroughStream);
-
-  passThroughStream.pipe(res);
+    .on('data', (chunk) => {
+      if (!res.write(chunk)) {
+        input.pause();
+        res.once('drain', () => {
+          input.resume();
+        });
+      }
+    })
+    .on('end', () => {
+      res.end();
+    })
+    
 }
 
 // 
@@ -166,7 +180,15 @@ const requestModule = parsedUrl.protocol === 'https:' ? https : http;
             res.setHeader(header, originRes.headers[header]);
           }
         });
-        return originRes.pipe(res);
+
+        // Use res.write for bypass
+        originRes.on('data', (chunk) => {
+          res.write(chunk);
+        });
+
+        originRes.on('end', () => {
+          res.end();
+        });
       }
     });
 
